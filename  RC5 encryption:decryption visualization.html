@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f0f8ff;
+  padding: 20px;
+  text-align: center;
+}
+
+.container {
+  max-width: 900px;
+  margin: auto;
+}
+
+.register-group {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  margin: 20px 0;
+}
+
+.register {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  min-width: 180px;
+}
+
+.register-header {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.word-row {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  margin: 5px 0;
+}
+
+.byte {
+  display: grid;
+  grid-template-columns: repeat(8, 20px);
+  gap: 2px;
+  padding: 5px;
+  background: #ffffff;
+  border-radius: 4px;
+}
+
+.bit {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #666;
+  font-size: 10px;
+}
+
+.bit.zero { background-color: #fff0f5; }
+.bit.one { background-color: #f5ffe0; }
+
+.s-array {
+  margin: 20px 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.s-register {
+  background: #e6f7ff;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.controls {
+  margin: 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+input[type="text"],
+input[type="number"] {
+  padding: 5px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 150px;
+}
+
+button {
+  padding: 8px 16px;
+  background: #4a90e2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 5px;
+}
+
+.step-info {
+  margin: 15px 0;
+  font-size: 16px;
+  color: #333;
+}
+</style>
+</head>
+<body>
+<h2>RC5 Encryption/Decryption Visualizer</h2>
+
+<div class="container">
+  <div class="register-group">
+    <div class="register">
+      <div class="register-header">Register A</div>
+      <div class="word-row">
+        <div>
+          <div>AH</div>
+          <div class="byte" id="AHigh"></div>
+        </div>
+        <div>
+          <div>AL</div>
+          <div class="byte" id="ALow"></div>
+        </div>
+      </div>
+      <div id="AValue">0x0000</div>
+    </div>
+
+    <div class="register">
+      <div class="register-header">Register B</div>
+      <div class="word-row">
+        <div>
+          <div>BH</div>
+          <div class="byte" id="BHigh"></div>
+        </div>
+        <div>
+          <div>BL</div>
+          <div class="byte" id="BLow"></div>
+        </div>
+      </div>
+      <div id="BValue">0x0000</div>
+    </div>
+  </div>
+
+  <div class="s-array" id="sArray">
+    <!-- S array registers will be populated by JS -->
+  </div>
+
+  <div class="step-info" id="stepInfo">Ready</div>
+
+  <div class="controls">
+    <div>
+      <input type="text" id="AInput" value="0x0001" placeholder="Initial A (hex)">
+      <input type="text" id="BInput" value="0x0002" placeholder="Initial B (hex)">
+      <input type="text" id="SInput" value="0x0003,0x0004,0x0005,0x0006,0x0007,0x0008,0x0009,0x000A,0x000B,0x000C,0x000D,0x000E,0x000F,0x0010,0x0011,0x0012,0x0013,0x0014" placeholder="S array (18 comma-separated)">
+    </div>
+    <div>
+      <button onclick="startEncryption()">Start Encryption</button>
+      <button onclick="startDecryption()">Start Decryption</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// DOM elements
+const AHighEl = document.getElementById('AHigh');
+const ALowEl = document.getElementById('ALow');
+const BHighEl = document.getElementById('BHigh');
+const BLowEl = document.getElementById('BLow');
+const AValueEl = document.getElementById('AValue');
+const BValueEl = document.getElementById('BValue');
+const sArrayEl = document.getElementById('sArray');
+const stepInfo = document.getElementById('stepInfo');
+
+// Create bit elements for registers
+function createBitElements(container) {
+  const bits = [];
+  for(let i = 0; i < 8; i++) {
+    const bit = document.createElement('div');
+    bit.className = 'bit zero';
+    container.appendChild(bit);
+    bits.push(bit);
+  }
+  return bits;
+}
+
+const AHighBits = createBitElements(AHighEl);
+const ALowBits = createBitElements(ALowEl);
+const BHighBits = createBitElements(BHighEl);
+const BLowBits = createBitElements(BLowEl);
+
+// Create S array registers (18 elements)
+const sRegisters = [];
+for(let i = 0; i < 18; i++) {
+  const regDiv = document.createElement('div');
+  regDiv.className = 's-register';
+  regDiv.innerHTML = `
+    <div>S[${i}]</div>
+    <div class="byte" id="S${i}High"></div>
+    <div class="byte" id="S${i}Low"></div>
+    <div id="S${i}Value">0x0000</div>
+  `;
+  sArrayEl.appendChild(regDiv);
+  
+  sRegisters[i] = {
+    highBits: createBitElements(document.getElementById(`S${i}High`)),
+    lowBits: createBitElements(document.getElementById(`S${i}Low`)),
+    valueEl: document.getElementById(`S${i}Value`)
+  };
+}
+
+function getBits(value) {
+  const bits = [];
+  for(let i = 0; i < 8; i++) {
+    bits.unshift((value >> i) & 1);
+  }
+  return bits;
+}
+
+function updateRegister(register, value) {
+  const high = (value >> 8) & 0xFF;
+  const low = value & 0xFF;
+  
+  // Update bits
+  const highBits = getBits(high);
+  register.highBits.forEach((el, i) => {
+    el.className = `bit ${highBits[i] ? 'one' : 'zero'}`;
+    el.textContent = highBits[i];
+  });
+  
+  const lowBits = getBits(low);
+  register.lowBits.forEach((el, i) => {
+    el.className = `bit ${lowBits[i] ? 'one' : 'zero'}`;
+    el.textContent = lowBits[i];
+  });
+  
+  // Update hex value
+  register.valueEl.textContent = `0x${value.toString(16).padStart(4, '0')}`;
+}
+
+function updateState(state) {
+  // Update A and B registers
+  updateRegister({ highBits: AHighBits, lowBits: ALowBits, valueEl: AValueEl }, 
+                 (state.AH << 8) | state.AL);
+  
+  updateRegister({ highBits: BHighBits, lowBits: BLowBits, valueEl: BValueEl }, 
+                 (state.BH << 8) | state.BL);
+  
+  // Update S array
+  for(let i = 0; i < 18; i++) {
+    updateRegister(sRegisters[i], (state.S[i].high << 8) | state.S[i].low);
+  }
+}
+
+// Store encryption result for decryption
+let encryptionResult = null;
+
+async function startEncryption() {
+  // Parse inputs
+  const AInput = parseInt(document.getElementById('AInput').value, 16);
+  const BInput = parseInt(document.getElementById('BInput').value, 16);
+  const SInput = document.getElementById('SInput').value.split(',')
+                  .map(val => parseInt(val.trim(), 16));
+  
+  if (isNaN(AInput) || isNaN(BInput) || SInput.some(isNaN) || SInput.length < 18) {
+    stepInfo.textContent = "Please enter valid hex values (18 S array elements)";
+    return;
+  }
+  
+  // Initialize state
+  let state = {
+    AH: (AInput >> 8) & 0xFF,
+    AL: AInput & 0xFF,
+    BH: (BInput >> 8) & 0xFF,
+    BL: BInput & 0xFF,
+    S: SInput.map(val => ({
+      high: (val >> 8) & 0xFF,
+      low: val & 0xFF
+    }))
+  };
+  
+  updateState(state);
+  stepInfo.textContent = "Starting RC5 encryption...";
+  await delay(500);
+  
+  // Initial additions
+  stepInfo.textContent = "Initial Additions";
+  await delay(500);
+  
+  // A += S[0]
+  stepInfo.textContent = "A += S[0]";
+  await delay(500);
+  const S0 = (state.S[0].high << 8) | state.S[0].low;
+  const AVal = ((state.AH << 8) | state.AL) + S0;
+  state.AH = (AVal >> 8) & 0xFF;
+  state.AL = AVal & 0xFF;
+  updateState(state);
+  await delay(500);
+  
+  // B += S[1]
+  stepInfo.textContent = "B += S[1]";
+  await delay(500);
+  const S1 = (state.S[1].high << 8) | state.S[1].low;
+  const BVal = ((state.BH << 8) | state.BL) + S1;
+  state.BH = (BVal >> 8) & 0xFF;
+  state.BL = BVal & 0xFF;
+  updateState(state);
+  await delay(500);
+  
+  // Store initial state for animation
+  const initialStates = [{...state}];
+  
+  // Rounds
+  for (let r = 0; r < 8; r++) {
+    stepInfo.textContent = `Round ${r+1} of 8`;
+    await delay(500);
+    
+    // Compute A
+    // XOR_WORD AH,AL = BH,BL
+    const BVal = (state.BH << 8) | state.BL;
+    const AValBefore = (state.AH << 8) | state.AL;
+    const xorResult = BVal ^ AValBefore;
+    state.AH = (xorResult >> 8) & 0xFF;
+    state.AL = xorResult & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `A = A ^ B`;
+    await delay(300);
+    
+    // ROTL_WORD AH,AL, (BL & 0x0F)
+    const rotateSteps = state.BL & 0x0F;
+    let aValue = (state.AH << 8) | state.AL;
+    for (let i = 0; i < rotateSteps; i++) {
+      const carry = (aValue >> 15) & 1;
+      aValue = ((aValue << 1) | carry) & 0xFFFF;
+      state.AH = (aValue >> 8) & 0xFF;
+      state.AL = aValue & 0xFF;
+      updateState(state);
+      stepInfo.textContent = `Rotate A left by ${rotateSteps}`;
+      await delay(100);
+    }
+    
+    // ADD_WORD AH,AL += S[r+2]
+    const sIndex = r * 2 + 2;
+    const sVal = (state.S[sIndex].high << 8) | state.S[sIndex].low;
+    aValue = (state.AH << 8) | state.AL;
+    aValue = (aValue + sVal) & 0xFFFF;
+    state.AH = (aValue >> 8) & 0xFF;
+    state.AL = aValue & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `A += S[${sIndex}]`;
+    await delay(300);
+    
+    // Compute B
+    // XOR_WORD BH,BL = AH,AL
+    const AValNow = (state.AH << 8) | state.AL;
+    const BValBefore = (state.BH << 8) | state.BL;
+    const xorResultB = AValNow ^ BValBefore;
+    state.BH = (xorResultB >> 8) & 0xFF;
+    state.BL = xorResultB & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `B = B ^ A`;
+    await delay(300);
+    
+    // ROTL_WORD BH,BL, (AL & 0x0F)
+    const rotateStepsB = state.AL & 0x0F;
+    let bValue = (state.BH << 8) | state.BL;
+    for (let i = 0; i < rotateStepsB; i++) {
+      const carry = (bValue >> 15) & 1;
+      bValue = ((bValue << 1) | carry) & 0xFFFF;
+      state.BH = (bValue >> 8) & 0xFF;
+      state.BL = bValue & 0xFF;
+      updateState(state);
+      stepInfo.textContent = `Rotate B left by ${rotateStepsB}`;
+      await delay(100);
+    }
+    
+    // ADD_WORD BH,BL += S[r+3]
+    const sIndexB = r * 2 + 3;
+    const sValB = (state.S[sIndexB].high << 8) | state.S[sIndexB].low;
+    bValue = (state.BH << 8) | state.BL;
+    bValue = (bValue + sValB) & 0xFFFF;
+    state.BH = (bValue >> 8) & 0xFF;
+    state.BL = bValue & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `B += S[${sIndexB}]`;
+    await delay(300);
+  }
+  
+  // Store result for decryption
+  encryptionResult = {...state};
+  stepInfo.textContent = "Encryption complete!";
+}
+
+async function startDecryption() {
+  // Use encryption result if available
+  let state = encryptionResult ? JSON.parse(JSON.stringify(encryptionResult)) : {
+    AH: (parseInt(document.getElementById('AInput').value, 16) >> 8) & 0xFF,
+    AL: parseInt(document.getElementById('AInput').value, 16) & 0xFF,
+    BH: (parseInt(document.getElementById('BInput').value, 16) >> 8) & 0xFF,
+    BL: parseInt(document.getElementById('BInput').value, 16) & 0xFF,
+    S: document.getElementById('SInput').value.split(',')
+        .map(val => parseInt(val.trim(), 16))
+        .map(val => ({ high: (val >> 8) & 0xFF, low: val & 0xFF }))
+  };
+  
+  // Validate S array length
+  while (state.S.length < 18) {
+    state.S.push({high: 0, low: 0});
+  }
+  
+  updateState(state);
+  stepInfo.textContent = "Starting RC5 decryption...";
+  await delay(500);
+  
+  // Rounds (reverse order)
+  for (let r = 7; r >= 0; r--) {
+    stepInfo.textContent = `Reverse Round ${r+1} of 8`;
+    await delay(500);
+    
+    // Compute B
+    // SUB_WORD BH,BL -= S[r+3]
+    const sIndexB = r * 2 + 3;
+    const sValB = (state.S[sIndexB].high << 8) | state.S[sIndexB].low;
+    let bValue = (state.BH << 8) | state.BL;
+    bValue = (bValue - sValB) & 0xFFFF;
+    state.BH = (bValue >> 8) & 0xFF;
+    state.BL = bValue & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `B -= S[${sIndexB}]`;
+    await delay(300);
+    
+    // ROTR_WORD BH,BL, (AL & 0x0F)
+    const rotateStepsB = state.AL & 0x0F;
+    for (let i = 0; i < rotateStepsB; i++) {
+      const carry = bValue & 1;
+      bValue = ((bValue >> 1) | (carry << 15)) & 0xFFFF;
+      state.BH = (bValue >> 8) & 0xFF;
+      state.BL = bValue & 0xFF;
+      updateState(state);
+      stepInfo.textContent = `Rotate B right by ${rotateStepsB}`;
+      await delay(100);
+    }
+    
+    // XOR_WORD BH,BL = AH,AL
+    const AValNow = (state.AH << 8) | state.AL;
+    bValue = (state.BH << 8) | state.BL;
+    const xorResultB = bValue ^ AValNow;
+    state.BH = (xorResultB >> 8) & 0xFF;
+    state.BL = xorResultB & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `B = B ^ A`;
+    await delay(300);
+    
+    // Compute A
+    // SUB_WORD AH,AL -= S[r+2]
+    const sIndex = r * 2 + 2;
+    const sVal = (state.S[sIndex].high << 8) | state.S[sIndex].low;
+    let aValue = (state.AH << 8) | state.AL;
+    aValue = (aValue - sVal) & 0xFFFF;
+    state.AH = (aValue >> 8) & 0xFF;
+    state.AL = aValue & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `A -= S[${sIndex}]`;
+    await delay(300);
+    
+    // ROTR_WORD AH,AL, (BL & 0x0F)
+    const rotateSteps = state.BL & 0x0F;
+    for (let i = 0; i < rotateSteps; i++) {
+      const carry = aValue & 1;
+      aValue = ((aValue >> 1) | (carry << 15)) & 0xFFFF;
+      state.AH = (aValue >> 8) & 0xFF;
+      state.AL = aValue & 0xFF;
+      updateState(state);
+      stepInfo.textContent = `Rotate A right by ${rotateSteps}`;
+      await delay(100);
+    }
+    
+    // XOR_WORD AH,AL = BH,BL
+    bValue = (state.BH << 8) | state.BL;
+    aValue = (state.AH << 8) | state.AL;
+    const xorResult = aValue ^ bValue;
+    state.AH = (xorResult >> 8) & 0xFF;
+    state.AL = xorResult & 0xFF;
+    updateState(state);
+    stepInfo.textContent = `A = A ^ B`;
+    await delay(300);
+  }
+  
+  // Final subtractions
+  stepInfo.textContent = "Final Subtractions";
+  await delay(500);
+  
+  // B -= S[1]
+  const S1 = (state.S[1].high << 8) | state.S[1].low;
+  let BVal = (state.BH << 8) | state.BL;
+  BVal = (BVal - S1) & 0xFFFF;
+  state.BH = (BVal >> 8) & 0xFF;
+  state.BL = BVal & 0xFF;
+  updateState(state);
+  stepInfo.textContent = "B -= S[1]";
+  await delay(300);
+  
+  // A -= S[0]
+  const S0 = (state.S[0].high << 8) | state.S[0].low;
+  let AVal = (state.AH << 8) | state.AL;
+  AVal = (AVal - S0) & 0xFFFF;
+  state.AH = (AVal >> 8) & 0xFF;
+  state.AL = AVal & 0xFF;
+  updateState(state);
+  stepInfo.textContent = "A -= S[0]";
+  await delay(300);
+  
+  stepInfo.textContent = "Decryption complete!";
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+</script>
+</body>
+</html>
